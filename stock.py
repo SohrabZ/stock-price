@@ -51,10 +51,12 @@ def _validate_ticker(ticker: str) -> str:
     return sym
 
 
-def fetch_chart(ticker: str, period: str, interval: str):
+def fetch_chart(ticker: str, period: str, interval: str, prepost: bool = False):
     """Fetch chart data from Yahoo Finance."""
     url = API_BASE.format(ticker=ticker)
     params = f"?interval={interval}&range={period}"
+    if prepost:
+        params += "&includePrePost=true"
     req = urllib.request.Request(url + params, headers=DEFAULT_HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
@@ -140,18 +142,36 @@ def print_table(ticker, meta, bars):
     print(f"\n{ticker}  --  {_display_name(meta)}")
     print(f"Exchange: {meta.get('exchangeName', 'N/A')}  |  Currency: {currency}")
     print("-" * 70)
-    print(f"{'Date':12} {'Open':>10} {'High':>10} {'Low':>10} {'Close':>10} {'Volume':>12}")
+
+    # Check if we have intraday data (non-midnight times)
+    is_intraday = any(b.get("time") and b["time"] != "00:00:00" for b in bars)
+
+    if is_intraday:
+        print(f"{'Date':12} {'Time':8} {'Open':>10} {'High':>10} {'Low':>10} {'Close':>10} {'Volume':>12}")
+    else:
+        print(f"{'Date':12} {'Open':>10} {'High':>10} {'Low':>10} {'Close':>10} {'Volume':>12}")
     print("-" * 70)
     for bar in bars:
         vol = f"{int(bar['volume']):,}" if bar.get("volume") is not None else "N/A"
-        print(
-            f"{bar['date']:12} "
-            f"{_fmt_price(bar['open']):>10} "
-            f"{_fmt_price(bar['high']):>10} "
-            f"{_fmt_price(bar['low']):>10} "
-            f"{_fmt_price(bar['close']):>10} "
-            f"{vol:>12}"
-        )
+        if is_intraday:
+            print(
+                f"{bar['date']:12} "
+                f"{bar['time'][:8]:8} "
+                f"{_fmt_price(bar['open']):>10} "
+                f"{_fmt_price(bar['high']):>10} "
+                f"{_fmt_price(bar['low']):>10} "
+                f"{_fmt_price(bar['close']):>10} "
+                f"{vol:>12}"
+            )
+        else:
+            print(
+                f"{bar['date']:12} "
+                f"{_fmt_price(bar['open']):>10} "
+                f"{_fmt_price(bar['high']):>10} "
+                f"{_fmt_price(bar['low']):>10} "
+                f"{_fmt_price(bar['close']):>10} "
+                f"{vol:>12}"
+            )
     print("-" * 70)
     if len(bars) >= 2:
         first_close = bars[0].get("close")
@@ -176,6 +196,23 @@ def print_table(ticker, meta, bars):
             vol_change = volumes[-1] - volumes[0]
             vol_pct = (vol_change / volumes[0]) * 100 if volumes[0] else 0
             print(f"Volume change: {int(vol_change):+,} ({vol_pct:+.1f}%)")
+
+    # Extended hours note
+    has_prepost = meta.get("hasPrePostMarketData")
+    if has_prepost:
+        periods = meta.get("currentTradingPeriod", {})
+        pre = periods.get("pre")
+        post = periods.get("post")
+        if pre and post:
+            pre_start = datetime.fromtimestamp(pre["start"], tz=timezone.utc)
+            pre_end = datetime.fromtimestamp(pre["end"], tz=timezone.utc)
+            post_start = datetime.fromtimestamp(post["start"], tz=timezone.utc)
+            post_end = datetime.fromtimestamp(post["end"], tz=timezone.utc)
+            et_offset = -4  # EDT
+            def _et(dt):
+                h = (dt.hour + et_offset) % 24
+                return f"{h:02d}:{dt.minute:02d}"
+            print(f"Pre-market: {_et(pre_start)} - {_et(pre_end)} ET  |  After-hours: {_et(post_start)} - {_et(post_end)} ET")
 
 
 def _bar_color(bar):
@@ -327,13 +364,15 @@ def main():
     parser.add_argument("-g", "--graph", action="store_true",
                         help="Generate a PNG chart (requires matplotlib)")
     parser.add_argument("--graph-output", help="Custom path for the PNG chart")
+    parser.add_argument("--prepost", action="store_true",
+                        help="Include pre-market and after-hours data (1d intraday only)")
     args = parser.parse_args()
 
     all_data = {}
     for ticker in args.tickers:
         try:
             sym = _validate_ticker(ticker)
-            result = fetch_chart(sym, args.period, args.interval)
+            result = fetch_chart(sym, args.period, args.interval, prepost=args.prepost)
             meta, bars = parse_result(result)
             all_data[sym] = {"meta": meta, "bars": bars}
 
