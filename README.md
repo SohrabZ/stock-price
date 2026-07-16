@@ -80,8 +80,8 @@ Fetches 5-day hourly data for your positions (SPCX, SLV), detects downtrend/reve
 | `-i, --interval` | Candle size: `1m`, `2m`, `5m`, `15m`, `30m`, `60m`, `90m`, `1h`, `1d`, `5d`, `1wk`, `1mo`, `3mo` | `1d` |
 | `-f, --format` | Output format: `table` or `json` | `table` |
 | `-o, --output` | Write output to file (use with `--format json`) | stdout |
-| `--graph` | Generate a candlestick chart | off |
-| `--graph-output` | Save chart to specific path (use with `--graph`) | `/tmp/{ticker}_chart.png` |
+| `--graph` | Generate a candlestick chart (use `-g` for short) | off |
+| `--graph-output` | Save chart to specific path (use with `--graph`) | system temp dir |
 | `--prepost` | Include pre-market and after-hours data | off |
 
 ## Screenshots
@@ -90,9 +90,9 @@ Fetches 5-day hourly data for your positions (SPCX, SLV), detects downtrend/reve
 
 ![1-Day Intraday](screenshots/nvda_1d.png)
 
-### 1-Week Daily - MM/DD x-axis labels
+### 5-Day Daily - MM/DD x-axis labels
 
-![1-Week Daily](screenshots/nvda_1w.png)
+![5-Day Daily](screenshots/nvda_1w.png)
 
 ### 1-Month Daily - MM/DD x-axis labels
 

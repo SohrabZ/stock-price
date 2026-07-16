@@ -57,17 +57,18 @@ def _mock_response(payload, status=200):
 
 
 def _run_cli(argv):
-    """Run stock.main() with given argv and capture stdout/stderr."""
+    """Run stock.main() with given argv and capture stdout/stderr + exit code."""
     captured = io.StringIO()
     err = io.StringIO()
+    exit_code = 0
     with patch.object(sys, "argv", argv):
         with patch.object(sys, "stdout", captured):
             with patch.object(sys, "stderr", err):
                 try:
                     stock.main()
-                except SystemExit:
-                    pass
-    return captured.getvalue(), err.getvalue()
+                except SystemExit as se:
+                    exit_code = se.code if isinstance(se.code, int) else 1
+    return captured.getvalue(), err.getvalue(), exit_code
 
 
 class TestFetchChart(unittest.TestCase):
@@ -158,7 +159,7 @@ class TestCLI(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_table_output(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d"])
         self.assertIn("Apple Inc.", out)
         self.assertIn("2021-01-01", out)
         self.assertIn("150.00", out)  # 2 decimal formatting
@@ -166,7 +167,7 @@ class TestCLI(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_json_output(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "1d", "-f", "json"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d", "-f", "json"])
         data = json.loads(out)
         self.assertIn("AAPL", data)
         self.assertEqual(data["AAPL"]["bars"][0]["close"], 150.0)
@@ -175,7 +176,7 @@ class TestCLI(unittest.TestCase):
     def test_json_output_to_file(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
         tmp_path = "/tmp/test_stock_output.json"
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "1d", "-f", "json", "-o", tmp_path])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d", "-f", "json", "-o", tmp_path])
         self.assertIn("JSON written to", out)
         with open(tmp_path, "r") as f:
             data = json.load(f)
@@ -185,16 +186,17 @@ class TestCLI(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_multiple_tickers(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
-        out, err = _run_cli(["stock.py", "AAPL", "MSFT", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "MSFT", "-p", "1d"])
         self.assertIn("Apple Inc.", out)
         self.assertEqual(out.count("Apple Inc."), 2)
 
     @patch("urllib.request.urlopen")
     def test_invalid_ticker(self, mock_urlopen):
         """Invalid ticker symbols are rejected before network call."""
-        out, err = _run_cli(["stock.py", "AAPL?bad", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "AAPL?bad", "-p", "1d"])
         self.assertIn("ERROR", err)
         self.assertIn("Invalid ticker", err)
+        self.assertEqual(code, 1)
         # Should NOT call urlopen for invalid tickers
         mock_urlopen.assert_not_called()
 
@@ -202,14 +204,15 @@ class TestCLI(unittest.TestCase):
     def test_delisted_ticker(self, mock_urlopen):
         """Delisted/unknown tickers rejected by Yahoo."""
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_ERROR)
-        out, err = _run_cli(["stock.py", "DEAD", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "DEAD", "-p", "1d"])
         self.assertIn("ERROR", err)
         self.assertIn("No data found", err)
+        self.assertEqual(code, 1)
 
     @patch("urllib.request.urlopen")
     def test_volume_stats(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "5d"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "5d"])
         self.assertIn("Avg volume:", out)
         self.assertIn("Volume change:", out)
 
@@ -218,7 +221,7 @@ class TestCLI(unittest.TestCase):
         if not stock.MATPLOTLIB_OK:
             self.skipTest("matplotlib not installed")
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_graph.png"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_graph.png"])
         # Graph status now goes to stderr
         self.assertIn("Graph saved", err)
         self.assertTrue(os.path.exists("/tmp/test_graph.png"))
@@ -253,7 +256,7 @@ class TestCLI(unittest.TestCase):
             }
         }
         mock_urlopen.return_value = _mock_response(single_bar_response)
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d"])
         self.assertIn("Period change:", out)
         self.assertIn("+2.00", out)  # 150 - 148 = 2
 
@@ -271,7 +274,7 @@ class TestCLI(unittest.TestCase):
             }
         }
         mock_urlopen.return_value = _mock_response(malformed)
-        out, err = _run_cli(["stock.py", "X", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "X", "-p", "1d"])
         # Should not crash; prints empty table
         self.assertIn("Malformed", out)
         self.assertNotIn("Traceback", err)
@@ -305,7 +308,7 @@ class TestCLI(unittest.TestCase):
             }
         }
         mock_urlopen.return_value = _mock_response(zero_response)
-        out, err = _run_cli(["stock.py", "X", "-p", "1d"])
+        out, err, code = _run_cli(["stock.py", "X", "-p", "1d"])
         self.assertNotIn("ZeroDivisionError", err)
         # Should print table without period change line (first_close=0 is skipped)
         self.assertIn("ZeroTest", out)
@@ -340,7 +343,7 @@ class TestCLI(unittest.TestCase):
             }
         }
         mock_urlopen.return_value = _mock_response(none_vol_response)
-        out, err = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_none_vol.png"])
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_none_vol.png"])
         self.assertIn("Graph saved", err)
         self.assertTrue(os.path.exists("/tmp/test_none_vol.png"))
         os.remove("/tmp/test_none_vol.png")
@@ -362,6 +365,50 @@ class TestCLI(unittest.TestCase):
             stock.fetch_chart("AAPL", "1d", "1d")
         self.assertIn("SSL fallback also failed", str(ctx.exception))
 
+
+
+    @patch("urllib.request.urlopen")
+    def test_graph_bad_path(self, mock_urlopen):
+        """Graph save failure (bad path) should not crash the whole run."""
+        if not stock.MATPLOTLIB_OK:
+            self.skipTest("matplotlib not installed")
+        mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/no/such/dir/x.png"])
+        self.assertIn("ERROR generating graph", err)
+        self.assertEqual(code, 1)
+
+    @patch("urllib.request.urlopen")
+    def test_json_write_failure(self, mock_urlopen):
+        """JSON file write failure should be handled gracefully."""
+        mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d", "-f", "json", "-o", "/no/such/dir/out.json"])
+        self.assertIn("ERROR writing JSON", err)
+        self.assertEqual(code, 1)
+
+    @patch("urllib.request.urlopen")
+    def test_mixed_tickers(self, mock_urlopen):
+        """Mixed good+bad tickers: good one outputs, bad one isolated."""
+        def side_effect(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            if "AAPL" in url:
+                return _mock_response(SAMPLE_YAHOO_RESPONSE)
+            else:
+                return _mock_response(SAMPLE_YAHOO_ERROR)
+        mock_urlopen.side_effect = side_effect
+        out, err, code = _run_cli(["stock.py", "AAPL", "DEAD", "-p", "1d", "-f", "json"])
+        data = json.loads(out)
+        self.assertIn("AAPL", data)
+        self.assertIn("bars", data["AAPL"])
+        self.assertIn("DEAD", data)
+        self.assertIn("error", data["DEAD"])
+        self.assertEqual(code, 1)
+
+    @patch("urllib.request.urlopen")
+    def test_success_exit_code(self, mock_urlopen):
+        """Successful run should exit 0."""
+        mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d"])
+        self.assertEqual(code, 0)
 
 if __name__ == "__main__":
     unittest.main()

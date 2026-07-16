@@ -369,6 +369,7 @@ def main():
     args = parser.parse_args()
 
     all_data = {}
+    has_errors = False
     for ticker in args.tickers:
         try:
             sym = _validate_ticker(ticker)
@@ -381,21 +382,29 @@ def main():
             if args.graph:
                 try:
                     generate_graph(sym, meta, bars, period=args.period, output_path=args.graph_output)
-                except RuntimeError as ge:
+                except Exception as ge:
                     print(f"ERROR generating graph for {sym}: {ge}", file=sys.stderr)
+                    has_errors = True
 
         except ValueError as e:
             print(f"ERROR fetching {ticker.upper()}: {e}", file=sys.stderr)
             all_data[ticker.upper()] = {"error": str(e)}
+            has_errors = True
 
     if args.format == "json":
         payload = json.dumps(all_data, indent=2, default=str)
         if args.output:
-            with open(args.output, "w") as f:
-                f.write(payload)
-            print(f"JSON written to {args.output}")
+            try:
+                with open(args.output, "w") as f:
+                    f.write(payload)
+                print(f"JSON written to {args.output}")
+            except OSError as e:
+                print(f"ERROR writing JSON to {args.output}: {e}", file=sys.stderr)
+                has_errors = True
         else:
             print(payload)
+
+    sys.exit(1 if has_errors else 0)
 
 
 if __name__ == "__main__":

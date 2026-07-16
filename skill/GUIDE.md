@@ -1,6 +1,6 @@
 ---
 name: stock-cli-guide
-version: 1.0.0
+version: 1.1.0
 description: Guide for AI agents using the stock-price CLI effectively
 category: data-science
 author: Hermes Agent
@@ -103,7 +103,7 @@ python3 ~/Codes/stock-price/stock.py AAPL --period 1mo --format json --output aa
 1. **Install skill for agents**: Copy `skill/` to `~/.hermes/skills/data-science/stock-price/` or `.claude/skills/`
 2. **Rate limiting**: Don't run rapid-fire requests; Yahoo limits aggressively
 3. **Period/interval compatibility**: Don't use `1m` interval with `1mo` period (too many bars)
-4. **Chart paths**: Default saves to `/tmp/<ticker>_chart.png`; use `--graph-output` for custom paths
+4. **Chart paths**: Default saves to the system temp directory (`/tmp/` on Linux, `/var/folders/...` on macOS); use `--graph-output` for custom paths
 5. **Volume context**: Always check volume stats alongside price changes for confirmation
 
 ## One-Liners for Common Tasks
@@ -112,8 +112,8 @@ python3 ~/Codes/stock-price/stock.py AAPL --period 1mo --format json --output aa
 # Quick price + change
 python3 ~/Codes/stock-price/stock.py AAPL | tail -5
 
-# Just the chart
-python3 ~/Codes/stock-price/stock.py NVDA --period 5d --graph >/dev/null 2>&1 && open /tmp/nvda_chart.png
+# Just the chart (uses explicit path to avoid temp dir differences)
+python3 ~/Codes/stock-price/stock.py NVDA --period 5d --graph --graph-output /tmp/nvda_chart.png && open /tmp/nvda_chart.png
 
 # Multiple tickers to JSON
 python3 ~/Codes/stock-price/stock.py AAPL MSFT --period 1mo --format json | python3 -m json.tool

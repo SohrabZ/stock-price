@@ -25,7 +25,7 @@ Fetch historical stock prices, OHLCV data, and candlestick charts from Yahoo Fin
 - Want to generate dual-panel candlestick + volume charts as PNG images.
 - Comparing price changes with volume trends to spot unusual trading activity.
 
-No external dependencies beyond Python 3.9+ stdlib for the core CLI. To generate charts, install matplotlib:
+No external dependencies beyond Python 3.8+ stdlib for the core CLI. To generate charts, install matplotlib:
 
 ```bash
 pip install matplotlib
@@ -59,7 +59,7 @@ python3 scripts/stock.py --help
 | `-i, --interval` | Candle size: `1m`, `2m`, `5m`, `15m`, `30m`, `60m`, `90m`, `1h`, `1d`, `5d`, `1wk`, `1mo`, `3mo` | `1d` |
 | `-f, --format` | Output format: `table` or `json` | `table` |
 | `-g, --graph` | Generate a PNG candlestick/line chart (requires `matplotlib`) | — |
-| `--graph-output` | Custom path for the PNG chart (requires `--graph`) | `/tmp/<ticker>_chart.png` |
+| `--graph-output` | Custom path for the PNG chart (requires `--graph`) | system temp dir |
 
 ### Chart output
 
@@ -97,20 +97,20 @@ generate_graph("NVDA", meta, bars, period="1mo", output_path="nvda.png")
 Table output includes price data **and** volume statistics:
 
 ```
-NVDA  —  NVIDIA Corporation
+NVDA  --  NVIDIA Corporation
 Exchange: NMS  |  Currency: USD
 ----------------------------------------------------------------------
 Date               Open       High        Low      Close       Volume
 ----------------------------------------------------------------------
-2026-07-10   210.26     211.08     205.85     206.73   67,417,317
+2026-07-10   210.26     211.08     205.85     210.96  148,421,000
 2026-07-13   208.54     210.57     203.00     203.53  121,411,000
 2026-07-14   208.20     212.55     203.80     211.80  124,379,600
 2026-07-15   211.96     213.81     206.04     212.50  124,482,600
-2026-07-16   210.26     211.08     205.85     206.73   67,417,317
+2026-07-16   210.26     211.08     205.85     206.76   74,595,599
 ----------------------------------------------------------------------
-Period change: $-4.23 (-2.01%)
-Avg volume:  117,222,303
-Volume change: -81,003,683 (-54.6%)
+Period change: $-4.21 (-1.99%)
+Avg volume:  118,657,959
+Volume change: -73,825,401 (-49.7%)
 ```
 
 ## Chart Features
@@ -118,7 +118,12 @@ Volume change: -81,003,683 (-54.6%)
 Charts are dual-panel PNGs:
 - **Top:** Candlestick price chart (green = up, red = down)
 - **Bottom:** Volume bars matching daily colors
-- **X-axis:** HH:MM for intraday (`--period 1d`), MM/DD for daily/weekly/monthly
+- **X-axis:** Smart 7-tier format based on actual date span:
+  - HH:MM for intraday (`--period 1d`)
+  - MM/DD for short-term (up to 31 days)
+  - Mon for medium-term (1-6 months)
+  - Mon 'YY for ~1-5 years
+  - Mon YYYY for 5+ years
 
 ## Tests
 
@@ -143,8 +148,8 @@ hermes cron create \
 
 ## Pitfalls
 
-- **SSL on macOS**: The CLI disables hostname verification to avoid `CERTIFICATE_VERIFY_FAILED` on macOS systems with incomplete Python cert bundles. Data is read-only from Yahoo Finance — this is low-risk, but do not use this pattern for authenticated endpoints.
-- **User-Agent required**: Yahoo Finance rejects requests without a realistic `User-Agent` header and returns an empty body. The CLI includes a Firefox/macOS header; if adapting the code, preserve this header or requests will fail with a JSON decode error on empty response.
+- **SSL on macOS**: The CLI attempts verified SSL first, and only falls back to unverified SSL when the specific error is `CERTIFICATE_VERIFY_FAILED` (common on macOS systems with incomplete Python cert bundles). Data is read-only from Yahoo Finance — this is low-risk, but do not use this pattern for authenticated endpoints.
+- **User-Agent required**: Yahoo Finance rejects requests without a realistic `User-Agent` header and returns an empty body. The CLI includes a WebKit/macOS-style header; if adapting the code, preserve this header or requests will fail with a JSON decode error on empty response.
 - **matplotlib backend in headless/cron mode**: The CLI sets `matplotlib.use("Agg")` before importing pyplot to avoid "no display name" crashes on headless servers or when running via cron. If you adapt the chart code into another script, always set the backend before any pyplot import.
 - **Adaptive bar width in matplotlib**: Fixed `width=0.6` means 0.6 **days** (14.4 hours), causing massive overlap on 1-minute intraday charts. The CLI now computes width from actual minimum bar interval: `(min_interval_seconds * 0.8) / 86400`. For 1m data this produces ~0.00056 days (48 seconds), creating properly separated bars. If adapting the code, always compute bar width from data density, never hardcode.
 - **Opening auction volume spike**: The first minute of trading often has 5-10x normal volume, squashing all other volume bars. The CLI detects this (first bar > 10x median of rest), skips it from the volume chart, and adds an annotation showing the exact opening volume. When building charts for other assets, always handle opening auction outliers.
@@ -152,7 +157,6 @@ hermes cron create \
 - **Hour labels only for intraday**: Use HH:MM x-axis labels **only** for `--period 1d` intraday charts. On multi-day charts (5d, 1mo, etc.) hour labels are unreadable — use MM/DD dates instead. The CLI detects this via `period == "1d"` combined with non-midnight timestamps.
 - **Invalid tickers**: Yahoo returns a structured error for delisted/invalid symbols. The CLI prints an `ERROR` line to stderr and continues with remaining tickers.
 - **Rate limits**: Yahoo Finance is unofficial and rate-limits aggressively. Do not hammer it in tight loops. For production workloads, consider a paid data provider (IEX Cloud, Polygon, Alpaca).
-- **Pre/post market**: The CLI uses `regularMarketPrice` for the latest snapshot; pre/post hours are not separately surfaced.
 
 ## Skill / Repo Sync
 
