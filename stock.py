@@ -84,10 +84,17 @@ def print_table(ticker, meta, bars):
     if len(bars) >= 2:
         first_close = bars[0].get("close")
         last_close = bars[-1].get("close")
-        if first_close and last_close:
-            change = last_close - first_close
-            pct = (change / first_close) * 100
-            print(f"Period change: ${change:+.2f} ({pct:+.2f}%)")
+    elif len(bars) == 1:
+        # Single-bar period (e.g., 1d): compare against previous close from meta
+        last_close = bars[0].get("close")
+        first_close = meta.get("chartPreviousClose")
+    else:
+        first_close = last_close = None
+
+    if first_close and last_close:
+        change = last_close - first_close
+        pct = (change / first_close) * 100
+        print(f"Period change: ${change:+.2f} ({pct:+.2f}%)")
 
 
 def main():
