@@ -315,7 +315,7 @@ def format_alert(new, old=None):
     if new["acceleration_signals"] and "near period low" in new["acceleration_signals"]:
         assess.append("at period low")
 
-    lines.append(f"{' | '.join(assess)}")
+    lines.append(f"*{' / '.join(assess)}*")
 
     dc = new.get("daily_change_pct", 0)
     dc_emoji = "🟢" if dc >= 0 else "🔴"
@@ -328,7 +328,8 @@ def format_alert(new, old=None):
         pnl_pct = pnl_info["pnl_pct"]
         dist = pnl_info["dist_to_breakeven_pct"]
         pnl_emoji = "🟢" if pnl >= 0 else "🔴"
-        lines.append(f"• 📦 Position: {pnl_info['qty']} @ **${pnl_info['avg']:.2f}**")
+        total_val = lp * pnl_info['qty']
+        lines.append(f"• 📦 Position: {pnl_info['qty']} @ **${pnl_info['avg']:.2f}**  |  Total: **${total_val:,.0f}**")
         lines.append(f"• {pnl_emoji} 💰 P&L: **${pnl:,.0f} ({pnl_pct:+.1f}%)**  |  🎯 BE: **{dist:+.1f}%**")
 
     # Trend + volume + signals
@@ -354,7 +355,7 @@ def format_alert(new, old=None):
     avg_vol = new.get("avg_vol", 0)
     recent_vol = new.get("recent_vol", 0)
     lines.append(f"• {status_emoji} Status: {status}")
-    lines.append(f"• 📊 Vol: **{vr:.2f}x** ({vol_desc})  |  Recent: {fmt_big(recent_vol)}  |  Avg: {fmt_big(avg_vol)}{sig_str}")
+    lines.append(f"• 📊 Vol: **{vr:.2f}x** ({vol_desc})  |  Recent: {fmt_big(recent_vol)}  |  Avg: {fmt_big(avg_vol)}")
 
     # Change detection vs previous run
     if old:
@@ -413,13 +414,33 @@ def main():
 
     save_state(state)
 
+    # Compute portfolio totals
+    total_cost = 0
+    total_value = 0
+    for ticker in TICKERS:
+        data = state.get(ticker, {})
+        lp = data.get("last_price", 0)
+        pos = POSITIONS.get(ticker)
+        if pos and lp:
+            total_cost += pos["qty"] * pos["avg"]
+            total_value += pos["qty"] * lp
+
     # Print for cron delivery — clean Telegram format, no headers
     for i, a in enumerate(alerts):
         print(a)
         if i < len(alerts) - 1:
+            print()
             print("---")
+            print()
         else:
             print()
+
+    # Portfolio summary
+    if total_cost > 0:
+        port_pnl = total_value - total_cost
+        port_pnl_pct = (port_pnl / total_cost) * 100
+        print(f"*Portfolio*: ${total_value:,.0f}  |  P&L: **${port_pnl:,.0f} ({port_pnl_pct:+.1f}%)**")
+        print()
 
     # Exit code: 1 if errors so cron error-alert fires
     sys.exit(1 if any_error else 0)
