@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""stock.py — fetch historical stock prices from Yahoo Finance."""
+"""stock.py -- fetch historical stock prices from Yahoo Finance."""
 
 import argparse
 import json
 import os
+import re
 import ssl
 import sys
+import tempfile
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -26,17 +29,54 @@ DEFAULT_HEADERS = {
 VALID_RANGES = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 VALID_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
 
+# Chart constants
+CHART_DPI = 150
+FIG_SIZE = (10, 7)
+PRICE_VOLUME_RATIO = [3, 1]
+UP_COLOR = "#26a69a"
+DOWN_COLOR = "#ef5350"
+LINE_COLOR = "#26a69a"
+BAR_WIDTH_FRACTION = 0.8
+SECONDS_PER_DAY = 86400
+AUCTION_SPIKE_FACTOR = 10
+REQUEST_TIMEOUT = 30
+TICKER_RE = re.compile(r"^[A-Za-z0-9.-]+$")
+
+
+def _validate_ticker(ticker: str) -> str:
+    """Validate and normalize a ticker symbol."""
+    sym = ticker.strip().upper()
+    if not TICKER_RE.match(sym):
+        raise ValueError(f"Invalid ticker symbol: {ticker!r}")
+    return sym
+
 
 def fetch_chart(ticker: str, period: str, interval: str):
     """Fetch chart data from Yahoo Finance."""
     url = API_BASE.format(ticker=ticker)
     params = f"?interval={interval}&range={period}"
     req = urllib.request.Request(url + params, headers=DEFAULT_HEADERS)
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-        data = json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            data = json.load(resp)
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            raise ValueError("Rate limited by Yahoo Finance. Please wait and try again.")
+        raise ValueError(f"HTTP {e.code} from Yahoo Finance for {ticker}: {e.reason}")
+    except urllib.error.URLError as e:
+        # On macOS, Python's bundled cert bundle may be incomplete.
+        # Fall back to unverified SSL only for CERTIFICATE_VERIFY_FAILED.
+        if "CERTIFICATE_VERIFY_FAILED" in str(e.reason):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT, context=ctx) as resp:
+                data = json.load(resp)
+        else:
+            raise ValueError(f"Network error fetching {ticker}: {e.reason}")
+    except json.JSONDecodeError:
+        raise ValueError(f"Invalid JSON response from Yahoo Finance for {ticker}")
+
     result = data.get("chart", {}).get("result", [])
     if not result:
         error = data.get("chart", {}).get("error", {})
@@ -53,6 +93,12 @@ def parse_result(result):
     adjclose_list = indicators.get("adjclose", [])
     adjclose = adjclose_list[0].get("adjclose", []) if adjclose_list else []
 
+    opens = quote.get("open", [])
+    highs = quote.get("high", [])
+    lows = quote.get("low", [])
+    closes = quote.get("close", [])
+    volumes = quote.get("volume", [])
+
     bars = []
     for i, ts in enumerate(timestamps):
         if ts is None:
@@ -61,21 +107,31 @@ def parse_result(result):
         bar = {
             "date": dt.strftime("%Y-%m-%d"),
             "time": dt.strftime("%H:%M:%S"),
-            "open": quote.get("open", [])[i] if i < len(quote.get("open", [])) else None,
-            "high": quote.get("high", [])[i] if i < len(quote.get("high", [])) else None,
-            "low": quote.get("low", [])[i] if i < len(quote.get("low", [])) else None,
-            "close": quote.get("close", [])[i] if i < len(quote.get("close", [])) else None,
-            "volume": quote.get("volume", [])[i] if i < len(quote.get("volume", [])) else None,
+            "open": opens[i] if i < len(opens) else None,
+            "high": highs[i] if i < len(highs) else None,
+            "low": lows[i] if i < len(lows) else None,
+            "close": closes[i] if i < len(closes) else None,
+            "volume": volumes[i] if i < len(volumes) else None,
             "adj_close": adjclose[i] if i < len(adjclose) else None,
         }
         bars.append(bar)
     return meta, bars
 
 
+def _fmt_price(v):
+    """Format a price value or return 'N/A' if None."""
+    return f"{v:.2f}" if v is not None else "N/A"
+
+
+def _display_name(meta):
+    """Get the display name from metadata."""
+    return meta.get("shortName") or meta.get("longName") or "N/A"
+
+
 def print_table(ticker, meta, bars):
     """Print human-readable table."""
     currency = meta.get("currency", "USD")
-    print(f"\n{ticker}  —  {meta.get('shortName', meta.get('longName', 'N/A'))}")
+    print(f"\n{ticker}  --  {_display_name(meta)}")
     print(f"Exchange: {meta.get('exchangeName', 'N/A')}  |  Currency: {currency}")
     print("-" * 70)
     print(f"{'Date':12} {'Open':>10} {'High':>10} {'Low':>10} {'Close':>10} {'Volume':>12}")
@@ -84,10 +140,10 @@ def print_table(ticker, meta, bars):
         vol = f"{int(bar['volume']):,}" if bar.get("volume") is not None else "N/A"
         print(
             f"{bar['date']:12} "
-            f"{bar['open'] or 'N/A':>10} "
-            f"{bar['high'] or 'N/A':>10} "
-            f"{bar['low'] or 'N/A':>10} "
-            f"{bar['close'] or 'N/A':>10} "
+            f"{_fmt_price(bar['open']):>10} "
+            f"{_fmt_price(bar['high']):>10} "
+            f"{_fmt_price(bar['low']):>10} "
+            f"{_fmt_price(bar['close']):>10} "
             f"{vol:>12}"
         )
     print("-" * 70)
@@ -100,7 +156,7 @@ def print_table(ticker, meta, bars):
     else:
         first_close = last_close = None
 
-    if first_close and last_close:
+    if first_close is not None and last_close is not None:
         change = last_close - first_close
         pct = (change / first_close) * 100
         print(f"Period change: ${change:+.2f} ({pct:+.2f}%)")
@@ -116,6 +172,90 @@ def print_table(ticker, meta, bars):
             print(f"Volume change: {int(vol_change):+,} ({vol_pct:+.1f}%)")
 
 
+def _draw_candles(ax, bars, dates):
+    """Draw candlesticks on the price axis."""
+    for i, bar in enumerate(bars):
+        if bar["close"] is None or bar["open"] is None or bar["high"] is None or bar["low"] is None:
+            continue
+        color = UP_COLOR if bar["close"] >= bar["open"] else DOWN_COLOR
+        ax.plot([dates[i], dates[i]], [bar["low"], bar["high"]], color=color, linewidth=1)
+        ax.plot([dates[i], dates[i]], [bar["open"], bar["close"]], color=color, linewidth=4, solid_capstyle="butt")
+
+
+def _configure_xaxis(ax, dates, is_intraday):
+    """Configure smart x-axis labels based on date range."""
+    if len(dates) > 1:
+        date_range_days = (dates[-1] - dates[0]).days
+    else:
+        date_range_days = 0
+
+    if is_intraday or date_range_days <= 1:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, len(dates) // 8)))
+    elif date_range_days <= 31:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
+        interval = max(1, date_range_days // 6)
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+    elif date_range_days <= 180:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+    elif date_range_days <= 400:
+        spans_years = dates[0].year != dates[-1].year
+        fmt = "%b '%y" if spans_years else "%b"
+        ax.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    elif date_range_days <= 800:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    elif date_range_days <= 1800:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    else:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+        year_span = date_range_days / 365
+        if year_span <= 10:
+            interval = 12
+        elif year_span <= 20:
+            interval = 18
+        else:
+            interval = 24
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=interval))
+
+
+def _draw_volume(ax, bars, dates):
+    """Draw volume bars with adaptive width."""
+    volumes = [b["volume"] for b in bars]
+    colors = [UP_COLOR if b["close"] is not None and b["open"] is not None and b["close"] >= b["open"] else DOWN_COLOR for b in bars]
+
+    # Compute adaptive width
+    if len(dates) > 1:
+        intervals = [(dates[i + 1] - dates[i]).total_seconds() for i in range(len(dates) - 1)]
+        min_interval = min(intervals) if intervals else SECONDS_PER_DAY
+        width_days = (min_interval * BAR_WIDTH_FRACTION) / SECONDS_PER_DAY
+    else:
+        width_days = 0.02
+
+    # Skip opening auction spike
+    skip_first = False
+    if len(volumes) > 2:
+        first_vol = volumes[0]
+        rest = sorted(volumes[1:])
+        rest_median = rest[len(rest) // 2] if len(rest) % 2 == 1 else (rest[len(rest) // 2 - 1] + rest[len(rest) // 2]) / 2
+        if first_vol > AUCTION_SPIKE_FACTOR * rest_median:
+            skip_first = True
+            ax.annotate(f"Open auction: {int(first_vol):,}", xy=(0.02, 0.95), xycoords="axes fraction",
+                        fontsize=9, ha="left", va="top", color="#888888",
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#cccccc", alpha=0.9))
+
+    start_idx = 1 if skip_first else 0
+    ax.bar(dates[start_idx:], volumes[start_idx:], color=colors[start_idx:], width=width_days)
+
+    ax.set_ylabel("Volume")
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
 def generate_graph(ticker, meta, bars, period=None, output_path=None):
     """Render a candlestick/line chart from bars."""
     if not MATPLOTLIB_OK:
@@ -123,124 +263,41 @@ def generate_graph(ticker, meta, bars, period=None, output_path=None):
     if not bars:
         raise ValueError("No data to graph")
 
-    dates = [datetime.strptime(f"{b['date']} {b['time']}", "%Y-%m-%d %H:%M:%S") for b in bars if b["date"] and b["time"]]
-    closes = [b["close"] for b in bars if b["close"] is not None]
-    volumes = [b["volume"] for b in bars if b["volume"] is not None]
-    highs = [b["high"] for b in bars if b["high"] is not None]
-    lows = [b["low"] for b in bars if b["low"] is not None]
-
-    # Detect if this is intraday (single day period with non-midnight times)
+    dates = [datetime.strptime(f"{b['date']} {b['time']}", "%Y-%m-%d %H:%M:%S") for b in bars]
     is_intraday = period == "1d" and any(d.hour != 0 or d.minute != 0 for d in dates)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=FIG_SIZE, gridspec_kw={"height_ratios": PRICE_VOLUME_RATIO}, sharex=True)
 
-    # Price chart
-    if len(bars) > 1 and all(h is not None for h in highs) and all(l is not None for l in lows):
-        for i, bar in enumerate(bars):
-            if bar["close"] is None or bar["open"] is None or bar["high"] is None or bar["low"] is None:
-                continue
-            color = "#26a69a" if bar["close"] >= bar["open"] else "#ef5350"
-            ax1.plot([dates[i], dates[i]], [bar["low"], bar["high"]], color=color, linewidth=1)
-            ax1.plot([dates[i], dates[i]], [bar["open"], bar["close"]], color=color, linewidth=4, solid_capstyle="butt")
-    else:
-        ax1.plot(dates, closes, color="#26a69a", linewidth=2)
-
-    ax1.set_title(f"{ticker}  —  {meta.get('shortName', meta.get('longName', ''))}", fontsize=14)
-    ax1.set_ylabel(f"Price ({meta.get('currency', 'USD')})")
-    ax1.grid(True, alpha=0.3)
-    ax1.spines["top"].set_visible(False)
-    ax1.spines["right"].set_visible(False)
-
-    # Volume chart — adaptive bar width based on actual time intervals
-    if volumes:
-        colors = ["#26a69a" if b["close"] and b["open"] and b["close"] >= b["open"] else "#ef5350" for b in bars]
-        
-        # Compute adaptive width: ~80% of the minimum interval between consecutive bars
-        if len(dates) > 1:
-            intervals = [(dates[i+1] - dates[i]).total_seconds() for i in range(len(dates)-1)]
-            min_interval = min(intervals) if intervals else 86400
-            # matplotlib date format is in days; width is a fraction of a day
-            width_days = (min_interval * 0.8) / 86400
+    try:
+        # Price chart
+        if len(bars) > 1 and all(b["high"] is not None and b["low"] is not None for b in bars):
+            _draw_candles(ax1, bars, dates)
         else:
-            width_days = 0.02  # fallback single bar
-        
-        # Skip opening auction spike if it dwarfs regular trading
-        skip_first = False
-        if len(volumes) > 2:
-            first_vol = volumes[0]
-            rest_median = sorted(volumes[1:])[len(volumes[1:]) // 2]
-            if first_vol > 10 * rest_median:
-                skip_first = True
-                ax2.annotate(f"Open auction: {int(first_vol):,}", xy=(0.02, 0.95), xycoords="axes fraction",
-                             fontsize=9, ha="left", va="top", color="#888888",
-                             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#cccccc", alpha=0.9))
-        
-        start_idx = 1 if skip_first else 0
-        ax2.bar(dates[start_idx:len(volumes)], volumes[start_idx:], color=colors[start_idx:], width=width_days)
-        
-        ax2.set_ylabel("Volume")
-        ax2.grid(True, alpha=0.3)
-        ax2.spines["top"].set_visible(False)
-        ax2.spines["right"].set_visible(False)
+            closes = [b["close"] for b in bars if b["close"] is not None]
+            valid_dates = [d for d, b in zip(dates, bars) if b["close"] is not None]
+            ax1.plot(valid_dates, closes, color=LINE_COLOR, linewidth=2)
 
-    # Smart x-axis labels based on actual date range (not period parameter)
-    if len(dates) > 1:
-        date_range_days = (dates[-1] - dates[0]).days
-    else:
-        date_range_days = 0
-    
-    if is_intraday or date_range_days <= 1:
-        # Intraday: HH:MM
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-        ax2.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, len(dates) // 8)))
-    elif date_range_days <= 31:
-        # Short term (up to 1 month): MM/DD
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-        interval = max(1, date_range_days // 6)
-        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
-    elif date_range_days <= 180:
-        # Medium term (1-6 months): abbreviated month name
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
-        ax2.xaxis.set_major_locator(mdates.MonthLocator())
-    elif date_range_days <= 400:
-        # ~1 year: month name (add year if spanning year boundary)
-        spans_years = dates[0].year != dates[-1].year
-        fmt = "%b '%y" if spans_years else "%b"
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
-        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    elif date_range_days <= 800:
-        # 1-2 years: Mon 'YY every 2 months
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
-        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    elif date_range_days <= 1800:
-        # 2-5 years: Mon 'YY every 3 months
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
-        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-    else:
-        # 5+ years: Mon YYYY every 12-24 months depending on total span
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-        # Calculate appropriate year interval based on total span
-        year_span = date_range_days / 365
-        if year_span <= 10:
-            interval = 12  # every year
-        elif year_span <= 20:
-            interval = 18  # every 1.5 years
-        else:
-            interval = 24  # every 2 years
-        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=interval))
+        ax1.set_title(f"{ticker}  --  {_display_name(meta)}", fontsize=14)
+        ax1.set_ylabel(f"Price ({meta.get('currency', 'USD')})")
+        ax1.grid(True, alpha=0.3)
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
 
-    fig.autofmt_xdate()
-    fig.tight_layout()
+        # Volume chart
+        if any(b["volume"] is not None for b in bars):
+            _draw_volume(ax2, bars, dates)
 
-    if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-        print(f"Graph saved to {output_path}")
-    else:
-        tmp_path = f"/tmp/{ticker.lower()}_chart.png"
-        fig.savefig(tmp_path, dpi=150, bbox_inches="tight")
-        print(f"Graph saved to {tmp_path}")
+        # X-axis labels
+        _configure_xaxis(ax2, dates, is_intraday)
 
-    plt.close(fig)
+        fig.autofmt_xdate()
+        fig.tight_layout()
+
+        path = output_path or os.path.join(tempfile.gettempdir(), f"{ticker.lower()}_chart.png")
+        fig.savefig(path, dpi=CHART_DPI, bbox_inches="tight")
+        print(f"Graph saved to {path}")
+    finally:
+        plt.close(fig)
 
 
 def main():
@@ -261,20 +318,20 @@ def main():
     all_data = {}
     for ticker in args.tickers:
         try:
-            result = fetch_chart(ticker.upper(), args.period, args.interval)
+            sym = _validate_ticker(ticker)
+            result = fetch_chart(sym, args.period, args.interval)
             meta, bars = parse_result(result)
-            all_data[ticker.upper()] = {"meta": meta, "bars": bars}
+            all_data[sym] = {"meta": meta, "bars": bars}
 
             if args.format == "table":
-                print_table(ticker.upper(), meta, bars)
+                print_table(sym, meta, bars)
             if args.graph:
                 try:
-                    generate_graph(ticker.upper(), meta, bars, period=args.period, output_path=args.graph_output)
-                except Exception as ge:
-                    print(f"ERROR generating graph for {ticker.upper()}: {ge}", file=sys.stderr)
-            # json printed after loop if requested
+                    generate_graph(sym, meta, bars, period=args.period, output_path=args.graph_output)
+                except RuntimeError as ge:
+                    print(f"ERROR generating graph for {sym}: {ge}", file=sys.stderr)
 
-        except Exception as e:
+        except ValueError as e:
             print(f"ERROR fetching {ticker.upper()}: {e}", file=sys.stderr)
             all_data[ticker.upper()] = {"error": str(e)}
 

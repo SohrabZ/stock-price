@@ -225,7 +225,7 @@ python3 stock.py AAPL MSFT GOOGL --period 5d
 
 ## Notes
 
-- **macOS SSL**: Uses `ssl.create_default_context()` with `verify_mode=CERT_NONE` to work around macOS certificate verification issues
+- **macOS SSL**: Attempts verified SSL first, falls back to unverified only for `CERTIFICATE_VERIFY_FAILED` on macOS systems with incomplete Python cert bundles
 - **Yahoo v8 API**: Requires `User-Agent: Mozilla/5.0` header
 - **Single-bar periods** (1d): Period change calculated against `chartPreviousClose` from metadata
 - **Opening auction**: Intraday charts detect and annotate the opening auction volume spike if it dwarfs regular trading
