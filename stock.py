@@ -116,7 +116,7 @@ def print_table(ticker, meta, bars):
             print(f"Volume change: {int(vol_change):+,} ({vol_pct:+.1f}%)")
 
 
-def generate_graph(ticker, meta, bars, output_path=None):
+def generate_graph(ticker, meta, bars, period=None, output_path=None):
     """Render a candlestick/line chart from bars."""
     if not MATPLOTLIB_OK:
         raise RuntimeError("matplotlib is not installed. Run: pip install matplotlib")
@@ -129,8 +129,8 @@ def generate_graph(ticker, meta, bars, output_path=None):
     highs = [b["high"] for b in bars if b["high"] is not None]
     lows = [b["low"] for b in bars if b["low"] is not None]
 
-    # Detect if this is intraday (non-midnight times)
-    is_intraday = any(d.hour != 0 or d.minute != 0 for d in dates)
+    # Detect if this is intraday (single day period with non-midnight times)
+    is_intraday = period == "1d" and any(d.hour != 0 or d.minute != 0 for d in dates)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
 
@@ -160,7 +160,7 @@ def generate_graph(ticker, meta, bars, output_path=None):
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
 
-    # Smart date formatting: hours for intraday, dates for daily
+    # Smart date formatting: hours for intraday (1d period), dates for everything else
     if is_intraday:
         ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
         ax2.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, len(dates) // 8)))
@@ -208,7 +208,7 @@ def main():
                 print_table(ticker.upper(), meta, bars)
             if args.graph:
                 try:
-                    generate_graph(ticker.upper(), meta, bars, output_path=args.graph_output)
+                    generate_graph(ticker.upper(), meta, bars, period=args.period, output_path=args.graph_output)
                 except Exception as ge:
                     print(f"ERROR generating graph for {ticker.upper()}: {ge}", file=sys.stderr)
             # json printed after loop if requested
