@@ -36,6 +36,15 @@ chmod +x stock.py
 ./stock.py TSLA --period 1mo --format json --output tsla.json
 ```
 
+### Generate a chart (requires matplotlib)
+```bash
+# Auto-save to /tmp/<ticker>_chart.png
+./stock.py NVDA --period 1mo --graph
+
+# Custom output path
+./stock.py AAPL --period 5d --graph --graph-output ~/Desktop/aapl.png
+```
+
 ### Full help
 ```bash
 ./stock.py --help

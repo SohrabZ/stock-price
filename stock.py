@@ -3,10 +3,20 @@
 
 import argparse
 import json
+import os
 import ssl
 import sys
 import urllib.request
 from datetime import datetime, timezone
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    MATPLOTLIB_OK = True
+except Exception:
+    MATPLOTLIB_OK = False
 
 API_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 DEFAULT_HEADERS = {
@@ -97,6 +107,53 @@ def print_table(ticker, meta, bars):
         print(f"Period change: ${change:+.2f} ({pct:+.2f}%)")
 
 
+def generate_graph(ticker, meta, bars, output_path=None):
+    """Render a candlestick/line chart from bars."""
+    if not MATPLOTLIB_OK:
+        raise RuntimeError("matplotlib is not installed. Run: pip install matplotlib")
+    if not bars:
+        raise ValueError("No data to graph")
+
+    dates = [datetime.strptime(b["date"], "%Y-%m-%d") for b in bars if b["date"]]
+    closes = [b["close"] for b in bars if b["close"] is not None]
+    highs = [b["high"] for b in bars if b["high"] is not None]
+    lows = [b["low"] for b in bars if b["low"] is not None]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # If enough bars and we have highs/lows, draw candlestick-like boxes
+    if len(bars) > 1 and all(h is not None for h in highs) and all(l is not None for l in lows):
+        for i, bar in enumerate(bars):
+            if bar["close"] is None or bar["open"] is None or bar["high"] is None or bar["low"] is None:
+                continue
+            color = "#26a69a" if bar["close"] >= bar["open"] else "#ef5350"
+            ax.plot([dates[i], dates[i]], [bar["low"], bar["high"]], color=color, linewidth=1)
+            ax.plot([dates[i], dates[i]], [bar["open"], bar["close"]], color=color, linewidth=4, solid_capstyle="butt")
+    else:
+        # Simple line chart fallback
+        ax.plot(dates, closes, color="#26a69a", linewidth=2)
+
+    ax.set_title(f"{ticker}  —  {meta.get('shortName', meta.get('longName', ''))}", fontsize=14)
+    ax.set_ylabel(f"Price ({meta.get('currency', 'USD')})")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates) // 6)))
+    fig.autofmt_xdate()
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+
+    if output_path:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        print(f"Graph saved to {output_path}")
+    else:
+        tmp_path = f"/tmp/{ticker.lower()}_chart.png"
+        fig.savefig(tmp_path, dpi=150, bbox_inches="tight")
+        print(f"Graph saved to {tmp_path}")
+
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch stock prices from Yahoo Finance.")
     parser.add_argument("tickers", nargs="+", help="Stock ticker symbols (e.g., AAPL MSFT)")
@@ -107,6 +164,9 @@ def main():
     parser.add_argument("-f", "--format", default="table", choices=["table", "json"],
                         help="Output format (default: table)")
     parser.add_argument("-o", "--output", help="Write JSON output to file")
+    parser.add_argument("-g", "--graph", action="store_true",
+                        help="Generate a PNG chart (requires matplotlib)")
+    parser.add_argument("--graph-output", help="Custom path for the PNG chart")
     args = parser.parse_args()
 
     all_data = {}
@@ -118,6 +178,11 @@ def main():
 
             if args.format == "table":
                 print_table(ticker.upper(), meta, bars)
+            if args.graph:
+                try:
+                    generate_graph(ticker.upper(), meta, bars, output_path=args.graph_output)
+                except Exception as ge:
+                    print(f"ERROR generating graph for {ticker.upper()}: {ge}", file=sys.stderr)
             # json printed after loop if requested
 
         except Exception as e:
