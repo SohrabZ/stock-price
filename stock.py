@@ -95,7 +95,6 @@ def print_table(ticker, meta, bars):
         first_close = bars[0].get("close")
         last_close = bars[-1].get("close")
     elif len(bars) == 1:
-        # Single-bar period (e.g., 1d): compare against previous close from meta
         last_close = bars[0].get("close")
         first_close = meta.get("chartPreviousClose")
     else:
@@ -105,6 +104,16 @@ def print_table(ticker, meta, bars):
         change = last_close - first_close
         pct = (change / first_close) * 100
         print(f"Period change: ${change:+.2f} ({pct:+.2f}%)")
+
+    # Volume stats
+    volumes = [b["volume"] for b in bars if b.get("volume") is not None]
+    if volumes:
+        avg_vol = sum(volumes) / len(volumes)
+        print(f"Avg volume:  {int(avg_vol):,}")
+        if len(volumes) >= 2:
+            vol_change = volumes[-1] - volumes[0]
+            vol_pct = (vol_change / volumes[0]) * 100 if volumes[0] else 0
+            print(f"Volume change: {int(vol_change):+,} ({vol_pct:+.1f}%)")
 
 
 def generate_graph(ticker, meta, bars, output_path=None):
@@ -116,31 +125,41 @@ def generate_graph(ticker, meta, bars, output_path=None):
 
     dates = [datetime.strptime(b["date"], "%Y-%m-%d") for b in bars if b["date"]]
     closes = [b["close"] for b in bars if b["close"] is not None]
+    volumes = [b["volume"] for b in bars if b["volume"] is not None]
     highs = [b["high"] for b in bars if b["high"] is not None]
     lows = [b["low"] for b in bars if b["low"] is not None]
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
 
-    # If enough bars and we have highs/lows, draw candlestick-like boxes
+    # Price chart
     if len(bars) > 1 and all(h is not None for h in highs) and all(l is not None for l in lows):
         for i, bar in enumerate(bars):
             if bar["close"] is None or bar["open"] is None or bar["high"] is None or bar["low"] is None:
                 continue
             color = "#26a69a" if bar["close"] >= bar["open"] else "#ef5350"
-            ax.plot([dates[i], dates[i]], [bar["low"], bar["high"]], color=color, linewidth=1)
-            ax.plot([dates[i], dates[i]], [bar["open"], bar["close"]], color=color, linewidth=4, solid_capstyle="butt")
+            ax1.plot([dates[i], dates[i]], [bar["low"], bar["high"]], color=color, linewidth=1)
+            ax1.plot([dates[i], dates[i]], [bar["open"], bar["close"]], color=color, linewidth=4, solid_capstyle="butt")
     else:
-        # Simple line chart fallback
-        ax.plot(dates, closes, color="#26a69a", linewidth=2)
+        ax1.plot(dates, closes, color="#26a69a", linewidth=2)
 
-    ax.set_title(f"{ticker}  —  {meta.get('shortName', meta.get('longName', ''))}", fontsize=14)
-    ax.set_ylabel(f"Price ({meta.get('currency', 'USD')})")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-    ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates) // 6)))
+    ax1.set_title(f"{ticker}  —  {meta.get('shortName', meta.get('longName', ''))}", fontsize=14)
+    ax1.set_ylabel(f"Price ({meta.get('currency', 'USD')})")
+    ax1.grid(True, alpha=0.3)
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+
+    # Volume chart
+    if volumes:
+        colors = ["#26a69a" if b["close"] and b["open"] and b["close"] >= b["open"] else "#ef5350" for b in bars]
+        ax2.bar(dates[:len(volumes)], volumes, color=colors, width=0.6)
+        ax2.set_ylabel("Volume")
+        ax2.grid(True, alpha=0.3)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
+    ax2.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates) // 6)))
     fig.autofmt_xdate()
-    ax.grid(True, alpha=0.3)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
     fig.tight_layout()
 
     if output_path:

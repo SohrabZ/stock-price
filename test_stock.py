@@ -3,7 +3,7 @@
 
 import json
 import io
-import ssl
+import os
 import sys
 import unittest
 from unittest.mock import patch, MagicMock
@@ -51,7 +51,6 @@ def _mock_response(payload, status=200):
     mock_resp = MagicMock()
     mock_resp.status = status
     mock_resp.read.return_value = json.dumps(payload).encode("utf-8")
-    # urlopen returns the mock directly when used as context manager
     mock_resp.__enter__ = lambda s: s
     mock_resp.__exit__ = lambda s, *args: None
     return mock_resp
@@ -98,10 +97,6 @@ class TestCLI(unittest.TestCase):
     def test_table_output(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
         captured = io.StringIO()
-        with patch.object(sys, "stdout", captured):
-            stock.main() if False else None
-        # Actually invoke via argparse path
-        # We must patch sys.argv because main() uses argparse
         with patch.object(sys, "argv", ["stock.py", "AAPL", "-p", "1d"]):
             with patch.object(sys, "stdout", captured):
                 try:
@@ -140,7 +135,6 @@ class TestCLI(unittest.TestCase):
                     pass
         out = captured.getvalue()
         self.assertIn("Apple Inc.", out)
-        # MSFT mocked same payload so it prints too
         self.assertEqual(out.count("Apple Inc."), 2)
 
     @patch("urllib.request.urlopen")
@@ -156,6 +150,37 @@ class TestCLI(unittest.TestCase):
                     except SystemExit:
                         pass
         self.assertIn("ERROR", err.getvalue())
+
+    @patch("urllib.request.urlopen")
+    def test_volume_stats(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["stock.py", "AAPL", "-p", "5d"]):
+            with patch.object(sys, "stdout", captured):
+                try:
+                    stock.main()
+                except SystemExit:
+                    pass
+        out = captured.getvalue()
+        self.assertIn("Avg volume:", out)
+        self.assertIn("Volume change:", out)
+
+    @patch("urllib.request.urlopen")
+    def test_graph_flag(self, mock_urlopen):
+        if not stock.MATPLOTLIB_OK:
+            self.skipTest("matplotlib not installed")
+        mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_graph.png"]):
+            with patch.object(sys, "stdout", captured):
+                try:
+                    stock.main()
+                except SystemExit:
+                    pass
+        out = captured.getvalue()
+        self.assertIn("Graph saved", out)
+        self.assertTrue(os.path.exists("/tmp/test_graph.png"))
+        os.remove("/tmp/test_graph.png")
 
 
 if __name__ == "__main__":
