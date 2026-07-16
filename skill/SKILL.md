@@ -168,23 +168,49 @@ git push origin main
 
 ## Reference Files
 
-- `references/candlestick-chart.md` — Chart rendering details, color scheme, headless/cron safety
-- `references/smart-xaxis-labels.md` — Period-aware x-axis label selection (HH:MM / MM:DD / Mon / Mon 'YY / Mon YYYY)
-- `references/intraday-intervals.md` — Interval constraints, max period per interval, data volume notes
-- `references/repo-sync-workflow.md` — How to keep skill files and GitHub repo in sync after edits
-- `references/volume-statistics.md` — How volume stats are calculated and displayed in CLI output
+| File | Topic |
+|------|-------|
+| `references/candlestick-chart.md` | Chart rendering, color scheme, headless/cron safety |
+| `references/chart-rendering.md` | Adaptive bar widths, figure sizing, matplotlib best practices |
+| `references/intraday-intervals.md` | Interval constraints, max period per interval, data volume notes |
+| `references/repo-sync-workflow.md` | How to keep skill files and GitHub repo in sync after edits |
+| `references/smart-xaxis-labels.md` | Period-aware x-axis label selection (HH:MM / MM/DD / Mon / Mon 'YY / Mon YYYY) |
+| `references/volume-statistics.md` | How volume stats are calculated and displayed in CLI output |
 
 ## File Layout
 
+In this repo:
 ```
-~/.hermes/skills/stock-price/
+stock-price/
+├── skill/
+│   ├── SKILL.md              # This file - Hermes skill manifest
+│   ├── GUIDE.md              # Agent quick-reference
+│   └── references/
+│       ├── candlestick-chart.md
+│       ├── chart-rendering.md
+│       ├── intraday-intervals.md
+│       ├── repo-sync-workflow.md
+│       ├── smart-xaxis-labels.md
+│       └── volume-statistics.md
+├── stock.py                  # CLI + library
+├── test_stock.py             # pytest suite
+├── README.md                 # User documentation
+└── screenshots/              # Chart examples
+```
+
+When installed as a Hermes skill:
+```
+~/.hermes/skills/data-science/stock-price/
 ├── SKILL.md
+├── GUIDE.md
 ├── references/
 │   ├── candlestick-chart.md
+│   ├── chart-rendering.md
 │   ├── intraday-intervals.md
 │   ├── repo-sync-workflow.md
+│   ├── smart-xaxis-labels.md
 │   └── volume-statistics.md
 └── scripts/
-    ├── stock.py       # CLI + library
-    └── test_stock.py  # pytest suite
+    ├── stock.py
+    └── test_stock.py
 ```

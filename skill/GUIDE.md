@@ -100,7 +100,7 @@ python3 ~/Codes/stock-price/stock.py AAPL --period 1mo --format json --output aa
 
 ## Best Practices
 
-1. **Use venv for charts**: The CLI has a venv with matplotlib at `~/Codes/stock-price/venv/`
+1. **Install skill for agents**: Copy `skill/` to `~/.hermes/skills/data-science/stock-price/` or `.claude/skills/`
 2. **Rate limiting**: Don't run rapid-fire requests; Yahoo limits aggressively
 3. **Period/interval compatibility**: Don't use `1m` interval with `1mo` period (too many bars)
 4. **Chart paths**: Default saves to `/tmp/<ticker>_chart.png`; use `--graph-output` for custom paths
