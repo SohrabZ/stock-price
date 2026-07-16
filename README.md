@@ -5,7 +5,8 @@ A lightweight Python CLI for fetching historical stock prices, volume, and OHLCV
 ## Features
 
 - **No API key required** - uses Yahoo Finance public endpoints
-- **Intraday support** - 1m, 5m, 15m, 30m, 1h intervals
+- **Pre-market & after-hours** - include extended hours with `--prepost` flag
+- **Intraday support** - 1m, 5m, 15m, 30m, 1h intervals with HH:MM timestamps
 - **Daily/weekly/monthly** - 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
 - **Volume data** - volume stats in table output and dual-panel charts
 - **Smart x-axis labels** - HH:MM for intraday, MM/DD for short-term, month names for medium-term, Mon YYYY for long-term
@@ -53,10 +54,22 @@ python3 stock.py NVDA --graph
 python3 stock.py NVDA --period 5d --interval 1d --graph --graph-output nvda_5d.png
 ```
 
+### Pre-market & after-hours
+```bash
+python3 stock.py SPY --period 1d --interval 15m --prepost
+```
+Shows extended hours bars (4:00 AM - 8:00 PM ET) with HH:MM timestamps. Useful for monitoring positions before/after regular trading hours.
+
 ### Multiple tickers
 ```bash
 python3 stock.py AAPL TSLA NVDA
 ```
+
+### Hourly trend monitor (cron)
+```bash
+python3 monitor.py
+```
+Fetches 5-day hourly data for your positions (SPCX, SLV), detects downtrend/reversal signals, and reports P&L with volume context. Designed to run as a cron job every 30 minutes during market hours.
 
 ## CLI Options
 
@@ -69,6 +82,7 @@ python3 stock.py AAPL TSLA NVDA
 | `-o, --output` | Write output to file (use with `--format json`) | stdout |
 | `--graph` | Generate a candlestick chart | off |
 | `--graph-output` | Save chart to specific path (use with `--graph`) | `/tmp/{ticker}_chart.png` |
+| `--prepost` | Include pre-market and after-hours data | off |
 
 ## Screenshots
 
