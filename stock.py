@@ -70,8 +70,11 @@ def fetch_chart(ticker: str, period: str, interval: str):
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT, context=ctx) as resp:
-                data = json.load(resp)
+            try:
+                with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT, context=ctx) as resp:
+                    data = json.load(resp)
+            except urllib.error.URLError as e2:
+                raise ValueError(f"Network error fetching {ticker} (SSL fallback also failed): {e2.reason}")
         else:
             raise ValueError(f"Network error fetching {ticker}: {e.reason}")
     except json.JSONDecodeError:
@@ -86,10 +89,13 @@ def fetch_chart(ticker: str, period: str, interval: str):
 
 def parse_result(result):
     """Parse chart result into list of daily bars."""
-    meta = result["meta"]
+    meta = result.get("meta", {})
     timestamps = result.get("timestamp", [])
-    indicators = result["indicators"]
-    quote = indicators["quote"][0]
+    indicators = result.get("indicators", {})
+    quotes = indicators.get("quote", [])
+    if not quotes:
+        return meta, []
+    quote = quotes[0]
     adjclose_list = indicators.get("adjclose", [])
     adjclose = adjclose_list[0].get("adjclose", []) if adjclose_list else []
 
@@ -156,7 +162,7 @@ def print_table(ticker, meta, bars):
     else:
         first_close = last_close = None
 
-    if first_close is not None and last_close is not None:
+    if first_close is not None and last_close is not None and first_close != 0:
         change = last_close - first_close
         pct = (change / first_close) * 100
         print(f"Period change: ${change:+.2f} ({pct:+.2f}%)")
@@ -172,12 +178,19 @@ def print_table(ticker, meta, bars):
             print(f"Volume change: {int(vol_change):+,} ({vol_pct:+.1f}%)")
 
 
+def _bar_color(bar):
+    """Return up/down color for a bar based on open vs close."""
+    if bar["close"] is None or bar["open"] is None:
+        return UP_COLOR  # neutral for incomplete bars
+    return UP_COLOR if bar["close"] >= bar["open"] else DOWN_COLOR
+
+
 def _draw_candles(ax, bars, dates):
     """Draw candlesticks on the price axis."""
     for i, bar in enumerate(bars):
         if bar["close"] is None or bar["open"] is None or bar["high"] is None or bar["low"] is None:
             continue
-        color = UP_COLOR if bar["close"] >= bar["open"] else DOWN_COLOR
+        color = _bar_color(bar)
         ax.plot([dates[i], dates[i]], [bar["low"], bar["high"]], color=color, linewidth=1)
         ax.plot([dates[i], dates[i]], [bar["open"], bar["close"]], color=color, linewidth=4, solid_capstyle="butt")
 
@@ -224,8 +237,9 @@ def _configure_xaxis(ax, dates, is_intraday):
 
 def _draw_volume(ax, bars, dates):
     """Draw volume bars with adaptive width."""
-    volumes = [b["volume"] for b in bars]
-    colors = [UP_COLOR if b["close"] is not None and b["open"] is not None and b["close"] >= b["open"] else DOWN_COLOR for b in bars]
+    # Coerce None volumes to 0 for matplotlib
+    volumes = [b["volume"] if b["volume"] is not None else 0 for b in bars]
+    colors = [_bar_color(b) for b in bars]
 
     # Compute adaptive width
     if len(dates) > 1:
@@ -295,7 +309,7 @@ def generate_graph(ticker, meta, bars, period=None, output_path=None):
 
         path = output_path or os.path.join(tempfile.gettempdir(), f"{ticker.lower()}_chart.png")
         fig.savefig(path, dpi=CHART_DPI, bbox_inches="tight")
-        print(f"Graph saved to {path}")
+        print(f"Graph saved to {path}", file=sys.stderr)
     finally:
         plt.close(fig)
 

@@ -219,7 +219,8 @@ class TestCLI(unittest.TestCase):
             self.skipTest("matplotlib not installed")
         mock_urlopen.return_value = _mock_response(SAMPLE_YAHOO_RESPONSE)
         out, err = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_graph.png"])
-        self.assertIn("Graph saved", out)
+        # Graph status now goes to stderr
+        self.assertIn("Graph saved", err)
         self.assertTrue(os.path.exists("/tmp/test_graph.png"))
         os.remove("/tmp/test_graph.png")
 
@@ -255,6 +256,111 @@ class TestCLI(unittest.TestCase):
         out, err = _run_cli(["stock.py", "AAPL", "-p", "1d"])
         self.assertIn("Period change:", out)
         self.assertIn("+2.00", out)  # 150 - 148 = 2
+
+    @patch("urllib.request.urlopen")
+    def test_parse_result_malformed(self, mock_urlopen):
+        """Malformed responses with missing quote data are handled gracefully (empty bars)."""
+        malformed = {
+            "chart": {
+                "result": [{
+                    "meta": {"symbol": "X", "shortName": "Malformed"},
+                    "timestamp": [1609459200],
+                    "indicators": {}  # Missing quote key
+                }],
+                "error": None
+            }
+        }
+        mock_urlopen.return_value = _mock_response(malformed)
+        out, err = _run_cli(["stock.py", "X", "-p", "1d"])
+        # Should not crash; prints empty table
+        self.assertIn("Malformed", out)
+        self.assertNotIn("Traceback", err)
+        self.assertNotIn("KeyError", err)
+
+    @patch("urllib.request.urlopen")
+    def test_zero_first_close(self, mock_urlopen):
+        """Period change with first_close=0.0 should not crash."""
+        zero_response = {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "symbol": "X",
+                        "exchangeName": "TEST",
+                        "shortName": "ZeroTest",
+                        "chartPreviousClose": 0.0,
+                    },
+                    "timestamp": [1609459200],
+                    "indicators": {
+                        "quote": [{
+                            "open": [0.0],
+                            "high": [0.0],
+                            "low": [0.0],
+                            "close": [0.0],
+                            "volume": [0],
+                        }],
+                        "adjclose": []
+                    }
+                }],
+                "error": None
+            }
+        }
+        mock_urlopen.return_value = _mock_response(zero_response)
+        out, err = _run_cli(["stock.py", "X", "-p", "1d"])
+        self.assertNotIn("ZeroDivisionError", err)
+        # Should print table without period change line (first_close=0 is skipped)
+        self.assertIn("ZeroTest", out)
+
+    @patch("urllib.request.urlopen")
+    def test_none_volumes_in_graph(self, mock_urlopen):
+        """None volumes should not crash graph generation."""
+        if not stock.MATPLOTLIB_OK:
+            self.skipTest("matplotlib not installed")
+        none_vol_response = {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "symbol": "AAPL",
+                        "exchangeName": "NMS",
+                        "shortName": "Apple Inc.",
+                        "chartPreviousClose": 150.0,
+                    },
+                    "timestamp": [1609459200, 1609545600],
+                    "indicators": {
+                        "quote": [{
+                            "open": [149.0, 151.0],
+                            "high": [152.0, 154.0],
+                            "low": [148.0, 150.0],
+                            "close": [150.0, 153.0],
+                            "volume": [1000000, None],
+                        }],
+                        "adjclose": []
+                    }
+                }],
+                "error": None
+            }
+        }
+        mock_urlopen.return_value = _mock_response(none_vol_response)
+        out, err = _run_cli(["stock.py", "AAPL", "-p", "5d", "--graph", "--graph-output", "/tmp/test_none_vol.png"])
+        self.assertIn("Graph saved", err)
+        self.assertTrue(os.path.exists("/tmp/test_none_vol.png"))
+        os.remove("/tmp/test_none_vol.png")
+
+    @patch("urllib.request.urlopen")
+    def test_ssl_fallback_failure(self, mock_urlopen):
+        """SSL fallback retry failure is handled gracefully."""
+        call_count = [0]
+
+        def side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise urllib.error.URLError("[SSL: CERTIFICATE_VERIFY_FAILED] verify failed")
+            else:
+                raise urllib.error.URLError("Connection refused")
+
+        mock_urlopen.side_effect = side_effect
+        with self.assertRaises(ValueError) as ctx:
+            stock.fetch_chart("AAPL", "1d", "1d")
+        self.assertIn("SSL fallback also failed", str(ctx.exception))
 
 
 if __name__ == "__main__":
