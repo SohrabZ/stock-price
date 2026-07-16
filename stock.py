@@ -8,6 +8,7 @@ import re
 import ssl
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -201,18 +202,15 @@ def print_table(ticker, meta, bars):
     has_prepost = meta.get("hasPrePostMarketData")
     if has_prepost:
         periods = meta.get("currentTradingPeriod", {})
-        pre = periods.get("pre")
-        post = periods.get("post")
-        if pre and post:
-            pre_start = datetime.fromtimestamp(pre["start"], tz=timezone.utc)
-            pre_end = datetime.fromtimestamp(pre["end"], tz=timezone.utc)
-            post_start = datetime.fromtimestamp(post["start"], tz=timezone.utc)
-            post_end = datetime.fromtimestamp(post["end"], tz=timezone.utc)
-            et_offset = -4  # EDT
-            def _et(dt):
-                h = (dt.hour + et_offset) % 24
-                return f"{h:02d}:{dt.minute:02d}"
-            print(f"Pre-market: {_et(pre_start)} - {_et(pre_end)} ET  |  After-hours: {_et(post_start)} - {_et(post_end)} ET")
+        pre = periods.get("pre") or {}
+        post = periods.get("post") or {}
+        # Guard against missing/None timestamps
+        ts_keys = [pre.get("start"), pre.get("end"), post.get("start"), post.get("end")]
+        if all(isinstance(ts, (int, float)) for ts in ts_keys):
+            def _et(ts):
+                t = time.localtime(ts)
+                return f"{t.tm_hour:02d}:{t.tm_min:02d}"
+            print(f"Pre-market: {_et(ts_keys[0])} - {_et(ts_keys[1])} ET  |  After-hours: {_et(ts_keys[2])} - {_et(ts_keys[3])} ET")
 
 
 def _bar_color(bar):

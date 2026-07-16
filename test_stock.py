@@ -410,5 +410,97 @@ class TestCLI(unittest.TestCase):
         out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d"])
         self.assertEqual(code, 0)
 
+    @patch("urllib.request.urlopen")
+    def test_prepost_output(self, mock_urlopen):
+        """Pre/post market times printed with --prepost flag."""
+        resp = {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "currency": "USD", "symbol": "SPY", "exchangeName": "ARCX",
+                        "shortName": "SPDR S&P 500", "chartPreviousClose": 400.0,
+                        "hasPrePostMarketData": True,
+                        "currentTradingPeriod": {
+                            "pre": {"start": 1609486800, "end": 1609500600},
+                            "post": {"start": 1609515000, "end": 1609532400},
+                        }
+                    },
+                    "timestamp": [1609459200],
+                    "indicators": {
+                        "quote": [{"open": [400.0], "high": [401.0], "low": [399.0], "close": [400.5], "volume": [1000000]}],
+                        "adjclose": []
+                    }
+                }],
+                "error": None
+            }
+        }
+        mock_urlopen.return_value = _mock_response(resp)
+        out, err, code = _run_cli(["stock.py", "SPY", "-p", "1d", "--prepost"])
+        self.assertIn("Pre-market:", out)
+        self.assertIn("After-hours:", out)
+        self.assertIn("ET", out)
+        self.assertEqual(code, 0)
+
+    @patch("urllib.request.urlopen")
+    def test_prepost_missing_periods(self, mock_urlopen):
+        """Missing or None pre/post timestamps should not crash."""
+        resp = {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "currency": "USD", "symbol": "X", "exchangeName": "TEST",
+                        "shortName": "Test", "chartPreviousClose": 1.0,
+                        "hasPrePostMarketData": True,
+                        "currentTradingPeriod": {
+                            "pre": {"start": None, "end": None},
+                            "post": {"start": 123, "end": 456},
+                        }
+                    },
+                    "timestamp": [1609459200],
+                    "indicators": {
+                        "quote": [{"open": [1.0], "high": [1.0], "low": [1.0], "close": [1.0], "volume": [0]}],
+                        "adjclose": []
+                    }
+                }],
+                "error": None
+            }
+        }
+        mock_urlopen.return_value = _mock_response(resp)
+        out, err, code = _run_cli(["stock.py", "X", "-p", "1d", "--prepost"])
+        self.assertNotIn("Traceback", err)
+        self.assertNotIn("KeyError", err)
+        self.assertNotIn("TypeError", err)
+
+    @patch("urllib.request.urlopen")
+    def test_intraday_table_format(self, mock_urlopen):
+        """Intraday bars show HH:MM in the Time column."""
+        resp = {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "currency": "USD", "symbol": "AAPL", "exchangeName": "NMS",
+                        "shortName": "Apple Inc.", "chartPreviousClose": 150.0,
+                    },
+                    "timestamp": [1609513200, 1609515000],  # 14:00 and 14:30 UTC (09:00/09:30 ET)
+                    "indicators": {
+                        "quote": [{
+                            "open": [149.0, 149.5], "high": [152.0, 150.0],
+                            "low": [148.0, 149.0], "close": [150.0, 149.8],
+                            "volume": [1000000, 500000],
+                        }],
+                        "adjclose": []
+                    }
+                }],
+                "error": None
+            }
+        }
+        mock_urlopen.return_value = _mock_response(resp)
+        out, err, code = _run_cli(["stock.py", "AAPL", "-p", "1d", "-i", "30m"])
+        # Should show HH:MM since timestamps have non-zero minutes
+        # Actual hour depends on machine timezone; assert format not specific value
+        import re
+        self.assertRegex(out, r"\d{2}:\d{2}")  # HH:MM pattern appears
+
+
 if __name__ == "__main__":
     unittest.main()

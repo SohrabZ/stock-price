@@ -64,7 +64,13 @@ python3 ~/Codes/stock-price/stock.py SPY --period 1mo --interval 1d --graph
 ```
 Shows: Monthly price action with clean date labels
 
-### 5. JSON for Processing
+### 5. Pre-Market & After-Hours
+```bash
+python3 ~/Codes/stock-price/stock.py NVDA --period 1d --interval 15m --prepost
+```
+Shows: Extended hours bars (04:00-09:30 and 16:00-20:00 ET) with pre/post timestamps
+
+### 6. JSON for Processing
 ```bash
 python3 ~/Codes/stock-price/stock.py AAPL --period 1mo --format json --output aapl.json
 ```

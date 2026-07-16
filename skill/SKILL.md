@@ -46,9 +46,14 @@ python3 scripts/stock.py NVDA --period 1d --interval 1m
 # JSON output (for piping / saving)
 python3 scripts/stock.py TSLA --period 5d --format json --output tsla.json
 
+# Pre-market & after-hours
+python3 scripts/stock.py SPY --period 1d --interval 15m --prepost
+
 # Full help
 python3 scripts/stock.py --help
 ```
+
+> **Note:** `scripts/stock.py` paths assume the Hermes-installed layout. From the cloned repo, use `python3 stock.py` and `from stock import ...` instead.
 
 ### Options
 
@@ -58,8 +63,10 @@ python3 scripts/stock.py --help
 | `-p, --period` | Time range: `1d`, `5d`, `1mo`, `3mo`, `6mo`, `1y`, `2y`, `5y`, `10y`, `ytd`, `max` | `1d` |
 | `-i, --interval` | Candle size: `1m`, `2m`, `5m`, `15m`, `30m`, `60m`, `90m`, `1h`, `1d`, `5d`, `1wk`, `1mo`, `3mo` | `1d` |
 | `-f, --format` | Output format: `table` or `json` | `table` |
+| `-o, --output` | Write JSON output to file (use with `--format json`) | stdout |
 | `-g, --graph` | Generate a PNG candlestick/line chart (requires `matplotlib`) | — |
 | `--graph-output` | Custom path for the PNG chart (requires `--graph`) | system temp dir |
+| `--prepost` | Include pre-market and after-hours data | off |
 
 ### Chart output
 
