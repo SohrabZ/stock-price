@@ -1,126 +1,131 @@
 # stock-price
 
-A lightweight Python CLI for fetching historical stock prices, volume, and OHLCV data from Yahoo Finance. Supports intraday ticks, daily/weekly/monthly bars, JSON export, and candlestick charts with volume panels.
+A lightweight Python CLI for fetching historical stock prices, volume, and OHLCV data from Yahoo Finance. Supports intraday ticks, daily/weekly/monthly bars, JSON export, and candlestick chart generation with smart x-axis labels.
 
 ## Features
 
-- **Zero core dependencies** — pure Python 3.9+ stdlib (matplotlib optional for charts)
-- **Intraday ticks** — 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h intervals
-- **Daily/weekly/monthly** — 1d, 5d, 1wk, 1mo, 3mo intervals
-- **Flexible periods** — 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
-- **Volume stats in CLI** — avg volume and volume change % printed in table output
-- **Dual-panel charts** — price candlesticks + volume bars (green/red)
-- **Smart x-axis labels** — HH:MM for intraday, MM/DD for daily
-- **Table or JSON output** — human-readable or machine-parsable
-- **Error-resilient** — invalid tickers print to stderr and continue
+- **No API key required** — uses Yahoo Finance public endpoints
+- **Intraday support** — 1m, 5m, 15m, 30m, 1h intervals
+- **Daily/weekly/monthly** — 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+- **Volume data** — volume stats in table output and dual-panel charts
+- **Smart x-axis labels** — HH:MM for intraday, MM/DD for short-term, month names for medium-term, Mon YYYY for long-term
+- **Candlestick charts** — with volume bars and adaptive bar widths
+- **JSON export** — for downstream processing
+- **Handles single-bar periods** — shows period change vs previous close from metadata
+
+## Requirements
+
+- Python 3.8+
+- `matplotlib` (optional, for chart generation)
 
 ## Installation
 
 ```bash
 git clone https://github.com/SohrabZ/stock-price.git
 cd stock-price
-chmod +x stock.py
-
-# Optional: for chart generation
-pip install matplotlib
+python3 stock.py --help
 ```
 
 ## Usage
 
-### Quick price check (1 day)
+### Basic — table output
 ```bash
-./stock.py AAPL
+python3 stock.py NVDA
+python3 stock.py AAPL --period 5d --interval 1d
+python3 stock.py TSLA --period 1mo --interval 1d
 ```
 
-### Multiple tickers, 5-day history
+### JSON export
 ```bash
-./stock.py PYPL MCHX OPEN --period 5d --interval 1d
+python3 stock.py NVDA --json
+python3 stock.py AAPL --period 1y --interval 1d --json > aapl.json
 ```
 
-### Intraday ticks (1-minute bars)
+### Chart generation
 ```bash
-./stock.py NVDA --period 1d --interval 1m
+python3 stock.py NVDA --graph
+python3 stock.py NVDA --period 5d --interval 1d --graph --graph-output nvda_5d.png
 ```
 
-### JSON output
+### Multiple tickers
 ```bash
-./stock.py TSLA --period 1mo --format json --output tsla.json
+python3 stock.py AAPL TSLA NVDA
 ```
 
-### Generate a chart (requires matplotlib)
-```bash
-# Auto-save to /tmp/<ticker>_chart.png
-./stock.py NVDA --period 1mo --graph
+## Screenshots
 
-# Custom output path
-./stock.py AAPL --period 5d --graph --graph-output ~/Desktop/aapl.png
+### 1-Day Intraday (5m intervals) — HH:MM x-axis labels
 
-# Intraday chart with hourly x-axis labels
-./stock.py NVDA --period 1d --interval 15m --graph
-```
+![1-Day Intraday](screenshots/nvda_1d.png)
 
-### Full help
-```bash
-./stock.py --help
-```
+### 1-Week Daily — MM/DD x-axis labels
 
-## CLI Output
+![1-Week Daily](screenshots/nvda_1w.png)
 
-Table output includes price data **and** volume statistics:
+### 1-Month Daily — MM/DD x-axis labels
 
-```
-NVDA  —  NVIDIA Corporation
-Exchange: NMS  |  Currency: USD
-----------------------------------------------------------------------
-Date               Open       High        Low      Close       Volume
-----------------------------------------------------------------------
-2026-07-10   210.26     211.08     205.85     206.73   67,417,317
-2026-07-13   208.54     210.57     203.00     203.53  121,411,000
-2026-07-14   208.20     212.55     203.80     211.80  124,379,600
-2026-07-15   211.96     213.81     206.04     212.50  124,482,600
-2026-07-16   210.26     211.08     205.85     206.73   67,417,317
-----------------------------------------------------------------------
-Period change: $-4.23 (-2.01%)
-Avg volume:  117,222,303
-Volume change: -81,003,683 (-54.6%)
-```
+![1-Month Daily](screenshots/nvda_1m.png)
 
-## Chart Features
+### 3-Month Daily — Month name x-axis labels
 
-Charts are dual-panel PNGs:
-- **Top:** Candlestick price chart (green = up, red = down)
-- **Bottom:** Volume bars matching daily colors
-- **X-axis:** HH:MM for intraday, MM/DD for daily
+![3-Month Daily](screenshots/nvda_3mo.png)
+
+### YTD Daily — Month name x-axis labels
+
+![YTD Daily](screenshots/nvda_ytd.png)
+
+### 1-Year Daily — Mon 'YY x-axis labels
+
+![1-Year Daily](screenshots/nvda_1y.png)
+
+### Max (All-Time Weekly) — Mon YYYY x-axis labels
+
+![Max All-Time](screenshots/nvda_max.png)
+
+## Smart X-Axis Labels
+
+The chart automatically selects appropriate x-axis labels based on the actual time span of the data:
+
+| Time Span | Format | Example |
+|-----------|--------|---------|
+| Intraday (<=1 day) | HH:MM | 09:30, 12:00 |
+| Short-term (<=31 days) | MM/DD | 07/01, 07/15 |
+| Medium-term (<=6 months) | Mon | Apr, May, Jun |
+| ~1 year | Mon 'YY | Jul '25, Aug '25 |
+| 1-2 years | Mon 'YY every 2mo | Jul '25, Sep '25 |
+| 2-5 years | Mon 'YY every 3mo | Jul '25, Oct '25 |
+| 5+ years | Mon YYYY every 1-2yr | Jun 1999, Jun 2001 |
+
+## Period/Interval Matrix
+
+| Period | Valid Intervals | Bars (typical) |
+|--------|-----------------|----------------|
+| 1d | 1m, 5m, 15m, 30m, 1h | 391 (1m), 78 (5m) |
+| 5d | 5m, 15m, 30m, 1h, 1d | 5 (1d) |
+| 1mo | 30m, 1h, 1d | ~22 (1d) |
+| 3mo, 6mo | 1d, 1wk | ~66, ~132 (1d) |
+| 1y, 2y, 5y, 10y | 1d, 1wk, 1mo | ~252, ~504 (1d) |
+| ytd, max | 1d, 1wk, 1mo | varies |
 
 ## Programmatic Use
 
-Import the functions in another Python script:
-
 ```python
-from stock import fetch_chart, parse_result, generate_graph
+from stock import fetch_stock_data, generate_graph
 
-result = fetch_chart("NVDA", "1mo", "1d")
-meta, bars = parse_result(result)
+# Fetch data
+meta, bars = fetch_stock_data("NVDA", period="5d", interval="1d")
 
-# Print volume stats
-for bar in bars:
-    print(bar["date"], bar["close"], bar["volume"])
-
-# Generate chart
-generate_graph("NVDA", meta, bars, output_path="nvda.png")
+# Generate chart with smart x-axis labels
+generate_graph("NVDA", meta, bars, period="5d", output_path="nvda_chart.png")
 ```
 
-## Tests
+## Notes
 
-```bash
-python3 -m pytest test_stock.py -v
-```
-
-## Limitations
-
-- Uses Yahoo Finance's unofficial API (no API key needed, but subject to rate limits)
-- SSL verification is relaxed for macOS compatibility — **do not use this pattern for authenticated endpoints**
-- Pre/post market data is not separately surfaced
+- **macOS SSL**: Uses `ssl._create_unverified_context()` to work around macOS certificate verification
+- **Yahoo v8 API**: Requires `User-Agent: Mozilla/5.0` header
+- **Single-bar periods** (1d): Period change calculated against `chartPreviousClose` from metadata
+- **Opening auction**: Intraday charts detect and annotate the opening auction volume spike if it dwarfs regular trading
+- **Adaptive bar widths**: Volume bars scale proportionally to the actual time interval between data points
 
 ## License
 

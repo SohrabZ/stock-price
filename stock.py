@@ -151,22 +151,83 @@ def generate_graph(ticker, meta, bars, period=None, output_path=None):
     ax1.spines["top"].set_visible(False)
     ax1.spines["right"].set_visible(False)
 
-    # Volume chart
+    # Volume chart — adaptive bar width based on actual time intervals
     if volumes:
         colors = ["#26a69a" if b["close"] and b["open"] and b["close"] >= b["open"] else "#ef5350" for b in bars]
-        ax2.bar(dates[:len(volumes)], volumes, color=colors, width=0.6)
+        
+        # Compute adaptive width: ~80% of the minimum interval between consecutive bars
+        if len(dates) > 1:
+            intervals = [(dates[i+1] - dates[i]).total_seconds() for i in range(len(dates)-1)]
+            min_interval = min(intervals) if intervals else 86400
+            # matplotlib date format is in days; width is a fraction of a day
+            width_days = (min_interval * 0.8) / 86400
+        else:
+            width_days = 0.02  # fallback single bar
+        
+        # Skip opening auction spike if it dwarfs regular trading
+        skip_first = False
+        if len(volumes) > 2:
+            first_vol = volumes[0]
+            rest_median = sorted(volumes[1:])[len(volumes[1:]) // 2]
+            if first_vol > 10 * rest_median:
+                skip_first = True
+                ax2.annotate(f"Open auction: {int(first_vol):,}", xy=(0.02, 0.95), xycoords="axes fraction",
+                             fontsize=9, ha="left", va="top", color="#888888",
+                             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#cccccc", alpha=0.9))
+        
+        start_idx = 1 if skip_first else 0
+        ax2.bar(dates[start_idx:len(volumes)], volumes[start_idx:], color=colors[start_idx:], width=width_days)
+        
         ax2.set_ylabel("Volume")
         ax2.grid(True, alpha=0.3)
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
 
-    # Smart date formatting: hours for intraday (1d period), dates for everything else
-    if is_intraday:
+    # Smart x-axis labels based on actual date range (not period parameter)
+    if len(dates) > 1:
+        date_range_days = (dates[-1] - dates[0]).days
+    else:
+        date_range_days = 0
+    
+    if is_intraday or date_range_days <= 1:
+        # Intraday: HH:MM
         ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
         ax2.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, len(dates) // 8)))
-    else:
+    elif date_range_days <= 31:
+        # Short term (up to 1 month): MM/DD
         ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates) // 6)))
+        interval = max(1, date_range_days // 6)
+        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+    elif date_range_days <= 180:
+        # Medium term (1-6 months): abbreviated month name
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+        ax2.xaxis.set_major_locator(mdates.MonthLocator())
+    elif date_range_days <= 400:
+        # ~1 year: month name (add year if spanning year boundary)
+        spans_years = dates[0].year != dates[-1].year
+        fmt = "%b '%y" if spans_years else "%b"
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
+        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    elif date_range_days <= 800:
+        # 1-2 years: Mon 'YY every 2 months
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    elif date_range_days <= 1800:
+        # 2-5 years: Mon 'YY every 3 months
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    else:
+        # 5+ years: Mon YYYY every 12-24 months depending on total span
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+        # Calculate appropriate year interval based on total span
+        year_span = date_range_days / 365
+        if year_span <= 10:
+            interval = 12  # every year
+        elif year_span <= 20:
+            interval = 18  # every 1.5 years
+        else:
+            interval = 24  # every 2 years
+        ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=interval))
 
     fig.autofmt_xdate()
     fig.tight_layout()
