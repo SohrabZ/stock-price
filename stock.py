@@ -123,11 +123,14 @@ def generate_graph(ticker, meta, bars, output_path=None):
     if not bars:
         raise ValueError("No data to graph")
 
-    dates = [datetime.strptime(b["date"], "%Y-%m-%d") for b in bars if b["date"]]
+    dates = [datetime.strptime(f"{b['date']} {b['time']}", "%Y-%m-%d %H:%M:%S") for b in bars if b["date"] and b["time"]]
     closes = [b["close"] for b in bars if b["close"] is not None]
     volumes = [b["volume"] for b in bars if b["volume"] is not None]
     highs = [b["high"] for b in bars if b["high"] is not None]
     lows = [b["low"] for b in bars if b["low"] is not None]
+
+    # Detect if this is intraday (non-midnight times)
+    is_intraday = any(d.hour != 0 or d.minute != 0 for d in dates)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
 
@@ -157,8 +160,14 @@ def generate_graph(ticker, meta, bars, output_path=None):
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
 
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-    ax2.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates) // 6)))
+    # Smart date formatting: hours for intraday, dates for daily
+    if is_intraday:
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        ax2.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, len(dates) // 8)))
+    else:
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
+        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates) // 6)))
+
     fig.autofmt_xdate()
     fig.tight_layout()
 
